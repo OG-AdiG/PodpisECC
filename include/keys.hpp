@@ -1,20 +1,21 @@
 #pragma once
 
 #include <string>
-#include <utility>
 
 namespace ecc {
 
 struct KeyPairPem {
     std::string private_pem;
     std::string public_pem;
+    bool encrypted = false;
 };
 
 // Generuje parę ECDSA na krzywej secp256r1 (NIST P-256).
-[[nodiscard]] KeyPairPem generate_key_pair_pem();
+// Jeśli passphrase niepusty — klucz prywatny szyfrowany AES-256-CBC w PEM.
+[[nodiscard]] KeyPairPem generate_key_pair_pem(const std::string& passphrase = {});
 
-// Generuje parę i zapisuje klucze w formacie PEM do plików.
 void generate_key_pair(const std::string& private_key_path,
-                       const std::string& public_key_path);
+                       const std::string& public_key_path,
+                       const std::string& passphrase = {});
 
 }  // namespace ecc

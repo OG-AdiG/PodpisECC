@@ -2,14 +2,38 @@
 
 #include <openssl/err.h>
 
-#include <cstdio>
+#include <algorithm>
+#include <cctype>
 #include <fstream>
 #include <iomanip>
-#include <iostream>
 #include <sstream>
 #include <stdexcept>
 
 namespace ecc {
+namespace {
+
+std::string translate_openssl_reason(const std::string& reason) {
+    const std::string r = to_lower(reason);
+    if (r.find("bad decrypt") != std::string::npos ||
+        r.find("bad password") != std::string::npos ||
+        r.find("wrong password") != std::string::npos) {
+        return "nieprawidłowe hasło do klucza prywatnego";
+    }
+    if (r.find("no start line") != std::string::npos ||
+        r.find("not enough data") != std::string::npos ||
+        r.find("asn1") != std::string::npos) {
+        return "nieprawidłowy lub uszkodzony format PEM/DER";
+    }
+    if (r.find("unsupported") != std::string::npos) {
+        return "nieobsługiwany format lub algorytm";
+    }
+    if (r.find("malloc") != std::string::npos) {
+        return "brak pamięci";
+    }
+    return reason;
+}
+
+}  // namespace
 
 std::string read_file_bytes_as_string(const std::string& path) {
     const auto bytes = read_file_bytes(path);
@@ -72,16 +96,73 @@ bool file_exists(const std::string& path) {
     return static_cast<bool>(in);
 }
 
+std::string to_lower(std::string s) {
+    std::transform(s.begin(), s.end(), s.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return s;
+}
+
+void validate_upload_size(std::size_t size, std::size_t max_bytes, const std::string& label) {
+    if (size == 0) {
+        fail("Plik „" + label + "” jest pusty");
+    }
+    if (size > max_bytes) {
+        fail("Plik „" + label + "” jest za duży (limit " +
+             std::to_string(max_bytes / 1024) + " KiB)");
+    }
+}
+
+void validate_key_filename(const std::string& filename) {
+    const auto lower = to_lower(filename);
+    if (lower.empty()) {
+        return;
+    }
+    if (!(lower.size() >= 4 &&
+          (lower.rfind(".pem") == lower.size() - 4 ||
+           lower.rfind(".key") == lower.size() - 4 ||
+           lower.rfind(".pub") == lower.size() - 4))) {
+        fail("Oczekiwany plik klucza z rozszerzeniem .pem, .key lub .pub (otrzymano: " +
+             filename + ")");
+    }
+}
+
+void validate_signature_filename(const std::string& filename) {
+    const auto lower = to_lower(filename);
+    if (lower.empty()) {
+        return;
+    }
+    if (!(lower.size() >= 4 &&
+          (lower.rfind(".sig") == lower.size() - 4 ||
+           lower.rfind(".bin") == lower.size() - 4 ||
+           lower.rfind(".der") == lower.size() - 4))) {
+        fail("Oczekiwany plik podpisu z rozszerzeniem .sig, .bin lub .der (otrzymano: " +
+             filename + ")");
+    }
+}
+
 void fail(const std::string& message) {
     throw std::runtime_error(message);
 }
 
 void openssl_fail(const std::string& context) {
-    char buf[256];
-    const unsigned long err = ERR_get_error();
-    if (err != 0) {
+    std::ostringstream details;
+    bool any = false;
+    while (true) {
+        const unsigned long err = ERR_get_error();
+        if (err == 0) {
+            break;
+        }
+        char buf[256];
         ERR_error_string_n(err, buf, sizeof(buf));
-        fail(context + " (" + buf + ")");
+        const std::string translated = translate_openssl_reason(buf);
+        if (any) {
+            details << "; ";
+        }
+        details << translated;
+        any = true;
+    }
+    if (any) {
+        fail(context + " — " + details.str());
     }
     fail(context);
 }

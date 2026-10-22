@@ -26,6 +26,7 @@ add_executable(podpis_ecc
     src/keys.cpp
     src/hash.cpp
     src/signature.cpp
+    src/benchmark.cpp
     src/utils.cpp
 )
 

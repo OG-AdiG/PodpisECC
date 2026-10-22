@@ -5,7 +5,9 @@
 #include <openssl/evp.h>
 #include <openssl/pem.h>
 
+#include <chrono>
 #include <cstdio>
+#include <cstring>
 #include <memory>
 #include <vector>
 
@@ -21,19 +23,39 @@ struct FileCloser {
 };
 
 struct EvpPkeyDeleter {
-    void operator()(EVP_PKEY* p) const {
-        EVP_PKEY_free(p);
-    }
+    void operator()(EVP_PKEY* p) const { EVP_PKEY_free(p); }
 };
 
-std::unique_ptr<EVP_PKEY, EvpPkeyDeleter> load_private_key(const std::string& path) {
+int pem_password_cb(char* buf, int size, int /*rwflag*/, void* userdata) {
+    if (userdata == nullptr || size <= 0) {
+        return 0;
+    }
+    const auto* pass = static_cast<const std::string*>(userdata);
+    if (pass->empty()) {
+        return 0;
+    }
+    const int n = static_cast<int>(std::min(pass->size(), static_cast<std::size_t>(size)));
+    std::memcpy(buf, pass->data(), static_cast<std::size_t>(n));
+    return n;
+}
+
+std::unique_ptr<EVP_PKEY, EvpPkeyDeleter> load_private_key(const std::string& path,
+                                                          const std::string& passphrase) {
     std::unique_ptr<FILE, FileCloser> in(std::fopen(path.c_str(), "rb"));
     if (!in) {
-        fail("Nie można otworzyć klucza prywatnego: " + path);
+        fail("Nie można otworzyć klucza prywatnego");
     }
-    EVP_PKEY* raw = PEM_read_PrivateKey(in.get(), nullptr, nullptr, nullptr);
+
+    std::string pass = passphrase;
+    EVP_PKEY* raw = nullptr;
+    if (pass.empty()) {
+        raw = PEM_read_PrivateKey(in.get(), nullptr, nullptr, nullptr);
+    } else {
+        raw = PEM_read_PrivateKey(in.get(), nullptr, pem_password_cb, &pass);
+    }
     if (!raw) {
-        openssl_fail("Nieprawidłowy format klucza prywatnego PEM");
+        openssl_fail("Nie udało się odczytać klucza prywatnego PEM "
+                     "(zły format, uszkodzony plik lub nieprawidłowe hasło)");
     }
     return std::unique_ptr<EVP_PKEY, EvpPkeyDeleter>(raw);
 }
@@ -41,7 +63,7 @@ std::unique_ptr<EVP_PKEY, EvpPkeyDeleter> load_private_key(const std::string& pa
 std::unique_ptr<EVP_PKEY, EvpPkeyDeleter> load_public_key(const std::string& path) {
     std::unique_ptr<FILE, FileCloser> in(std::fopen(path.c_str(), "rb"));
     if (!in) {
-        fail("Nie można otworzyć klucza publicznego: " + path);
+        fail("Nie można otworzyć klucza publicznego");
     }
     EVP_PKEY* raw = PEM_read_PUBKEY(in.get(), nullptr, nullptr, nullptr);
     if (!raw) {
@@ -50,21 +72,34 @@ std::unique_ptr<EVP_PKEY, EvpPkeyDeleter> load_public_key(const std::string& pat
     return std::unique_ptr<EVP_PKEY, EvpPkeyDeleter>(raw);
 }
 
+double ms_since(std::chrono::steady_clock::time_point start) {
+    using namespace std::chrono;
+    return duration<double, std::milli>(steady_clock::now() - start).count();
+}
+
 }  // namespace
 
-void sign_document(const std::string& document_path,
-                   const std::string& private_key_path,
-                   const std::string& signature_path) {
-    auto digest = sha256_file(document_path);
-    auto pkey = load_private_key(private_key_path);
+SignResult sign_document(const std::string& document_path,
+                         const std::string& private_key_path,
+                         const std::string& signature_path,
+                         const std::string& passphrase) {
+    SignResult result;
 
+    auto t0 = std::chrono::steady_clock::now();
+    auto digest = sha256_file(document_path);
+    result.hash_ms = ms_since(t0);
+    result.sha256_hex = to_hex(digest);
+
+    auto pkey = load_private_key(private_key_path, passphrase);
+
+    auto t1 = std::chrono::steady_clock::now();
     std::unique_ptr<EVP_PKEY_CTX, decltype(&EVP_PKEY_CTX_free)> pctx(
         EVP_PKEY_CTX_new(pkey.get(), nullptr), &EVP_PKEY_CTX_free);
     if (!pctx) {
-        openssl_fail("Nie udało się utworzyć kontekstu EVP_PKEY_sign");
+        openssl_fail("Nie udało się utworzyć kontekstu podpisu");
     }
     if (EVP_PKEY_sign_init(pctx.get()) <= 0) {
-        openssl_fail("EVP_PKEY_sign_init nie powiodło się");
+        openssl_fail("Inicjalizacja podpisu ECDSA nie powiodła się");
     }
     if (EVP_PKEY_CTX_set_signature_md(pctx.get(), EVP_sha256()) <= 0) {
         openssl_fail("Ustawienie SHA-256 dla podpisu nie powiodło się");
@@ -80,28 +115,37 @@ void sign_document(const std::string& document_path,
         openssl_fail("Podpisywanie ECDSA nie powiodło się");
     }
     signature.resize(sig_len);
+    result.sign_ms = ms_since(t1);
+    result.signature_bytes = signature.size();
 
     write_file_bytes(signature_path, signature);
+    return result;
 }
 
-bool verify_document(const std::string& document_path,
-                     const std::string& public_key_path,
-                     const std::string& signature_path) {
+VerifyResult verify_document(const std::string& document_path,
+                             const std::string& public_key_path,
+                             const std::string& signature_path) {
+    VerifyResult result;
+
+    auto t0 = std::chrono::steady_clock::now();
     auto digest = sha256_file(document_path);
+    result.hash_ms = ms_since(t0);
+    result.sha256_hex = to_hex(digest);
+
     auto pkey = load_public_key(public_key_path);
     auto signature = read_file_bytes(signature_path);
-
     if (signature.empty()) {
-        fail("Plik podpisu jest pusty: " + signature_path);
+        fail("Plik podpisu jest pusty");
     }
 
+    auto t1 = std::chrono::steady_clock::now();
     std::unique_ptr<EVP_PKEY_CTX, decltype(&EVP_PKEY_CTX_free)> pctx(
         EVP_PKEY_CTX_new(pkey.get(), nullptr), &EVP_PKEY_CTX_free);
     if (!pctx) {
         openssl_fail("Nie udało się utworzyć kontekstu weryfikacji");
     }
     if (EVP_PKEY_verify_init(pctx.get()) <= 0) {
-        openssl_fail("EVP_PKEY_verify_init nie powiodło się");
+        openssl_fail("Inicjalizacja weryfikacji nie powiodła się");
     }
     if (EVP_PKEY_CTX_set_signature_md(pctx.get(), EVP_sha256()) <= 0) {
         openssl_fail("Ustawienie SHA-256 dla weryfikacji nie powiodło się");
@@ -113,15 +157,18 @@ bool verify_document(const std::string& document_path,
         signature.size(),
         digest.data(),
         digest.size());
+    result.verify_ms = ms_since(t1);
 
     if (rc == 1) {
-        return true;
+        result.valid = true;
+        return result;
     }
     if (rc == 0) {
-        return false;  // podpis niepasujący — to wynik, nie wyjątek
+        result.valid = false;
+        return result;
     }
     openssl_fail("Błąd podczas weryfikacji podpisu");
-    return false;
+    return result;
 }
 
 }  // namespace ecc
