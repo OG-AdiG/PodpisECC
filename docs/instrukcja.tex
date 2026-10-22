@@ -1,0 +1,248 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[polish]{babel}
+\usepackage{lmodern}
+\usepackage[a4paper,margin=2.2cm]{geometry}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+
+\hypersetup{colorlinks=true,linkcolor=black,urlcolor=blue}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small PodpisECC --- instrukcja}
+\fancyhead[R]{\small Adrian Gargula}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\title{\textbf{PodpisECC}\\[0.4em]
+\large Instrukcja użytkowania, weryfikacji wyniku\\i dalszego rozwoju}
+\author{System podpisu cyfrowego ECC\\ECDSA / secp256r1 / SHA-256 / OpenSSL}
+\date{2026}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+\section{Czy coś jeszcze trzeba?}
+
+Na zaliczenie projektu \textbf{masz już komplet}:
+\begin{itemize}[leftmargin=*]
+  \item działającą aplikację webową (C++ + OpenSSL),
+  \item generowanie kluczy, podpis, weryfikację, SHA-256,
+  \item hasło do klucza prywatnego, limity uploadu, powiadomienia,
+  \item pomiar ECC vs RSA-3072,
+  \item skrypt testów automatycznych,
+  \item dokumentację LaTeX/PDF w folderze \texttt{korostil}.
+\end{itemize}
+
+\textbf{Opcjonalnie} (niekonieczne, ale ładnie wygląda na obronie):
+\begin{itemize}[leftmargin=*]
+  \item 2--3 zrzuty ekranu UI w dokumentacji projektowej,
+  \item krótka prezentacja / demo na żywo (happy-path + test negatywny),
+  \item uzupełnienie wniosków po pomiarach z benchmarku.
+\end{itemize}
+
+Nie musisz dodawać PKI, HTTPS ani GUI desktopowego --- to było poza zakresem.
+
+\section{Uruchomienie aplikacji}
+
+\begin{enumerate}[leftmargin=*]
+  \item Otwórz PowerShell.
+  \item Przejdź do katalogu projektu:
+\begin{verbatim}
+cd "C:\Users\Adrian\Desktop\Podpis cyfrowy ecc"
+\end{verbatim}
+  \item Jeśli jeszcze nie budowałeś albo zmieniłeś kod:
+\begin{verbatim}
+cmake -S . -B build -G "MinGW Makefiles" ^
+  -DCMAKE_BUILD_TYPE=Release ^
+  -DOPENSSL_ROOT_DIR="C:/Strawberry/c"
+cmake --build build
+\end{verbatim}
+  \item Uruchom serwer:
+\begin{verbatim}
+.\build\bin\podpis_ecc.exe
+\end{verbatim}
+  \item W przeglądarce otwórz: \url{http://127.0.0.1:8080/}
+  \item Zatrzymanie: w oknie serwera \texttt{Ctrl+C} albo zamknięcie procesu.
+\end{enumerate}
+
+Inny port (np.\ gdy 8080 zajęty):
+\begin{verbatim}
+.\build\bin\podpis_ecc.exe 9090
+\end{verbatim}
+wtedy UI: \url{http://127.0.0.1:9090/}
+
+\section{Jak używać --- krok po kroku}
+
+\subsection{Scenariusz A --- podpis i weryfikacja poprawna (happy-path)}
+
+\begin{enumerate}[leftmargin=*]
+  \item W sekcji \textbf{1. Generuj klucze} wpisz hasło (zalecane, min.\ 6 znaków) dwa razy.
+  \item Kliknij \textbf{Generuj parę kluczy}.
+  \item Pobierz \texttt{private.pem} i \texttt{public.pem} (linki w wyniku).
+  \item Przygotuj dowolny plik tekstowy, np.\ \texttt{umowa.txt}.
+  \item W sekcji \textbf{2. Podpisz dokument}:
+    \begin{itemize}
+      \item upuść / wybierz dokument,
+      \item upuść / wybierz \texttt{private.pem},
+      \item wpisz hasło (jeśli klucz zaszyfrowany),
+      \item opcjonalnie: \textbf{Podgląd SHA-256},
+      \item kliknij \textbf{Podpisz i pobierz .sig}.
+    \end{itemize}
+  \item Zapisz pobrany \texttt{document.sig}.
+  \item W sekcji \textbf{3. Zweryfikuj podpis} wgraj:
+    \begin{itemize}
+      \item ten sam dokument,
+      \item \texttt{public.pem},
+      \item \texttt{document.sig}.
+    \end{itemize}
+  \item Kliknij \textbf{Weryfikuj}.
+\end{enumerate}
+
+\textbf{Oczekiwany wynik:} toast i panel --- \textit{podpis PRAWIDŁOWY} (kolor zielony).
+
+\subsection{Scenariusz B --- wykrycie zmiany dokumentu}
+
+\begin{enumerate}[leftmargin=*]
+  \item Po udanym podpisie zmień 1 znak w pliku dokumentu (lub wgraj inną wersję).
+  \item Zweryfikuj \textbf{starym} podpisem i tym samym kluczem publicznym.
+\end{enumerate}
+
+\textbf{Oczekiwany wynik:} \textit{podpis NIEPRAWIDŁOWY} --- to dowód kontroli integralności.
+
+\subsection{Scenariusz C --- niewłaściwy klucz}
+
+\begin{enumerate}[leftmargin=*]
+  \item Wygeneruj \textbf{drugą} parę kluczy.
+  \item Dokument podpisany kluczem A zweryfikuj kluczem publicznym B.
+\end{enumerate}
+
+\textbf{Oczekiwany wynik:} \textit{podpis NIEPRAWIDŁOWY}.
+
+\subsection{Scenariusz D --- błędy użytkownika (powiadomienia)}
+
+Sprawdź, że aplikacja komunikuje konkretną przyczynę:
+\begin{itemize}[leftmargin=*]
+  \item brak pliku dokumentu / klucza / podpisu,
+  \item klucz publiczny wgrany jako prywatny (i odwrotnie),
+  \item złe hasło do zaszyfrowanego PEM,
+  \item zaszyfrowany klucz bez podanego hasła,
+  \item złe rozszerzenie pliku (\texttt{.pem}, \texttt{.sig}, \ldots).
+\end{itemize}
+
+\subsection{Scenariusz E --- pomiar wydajności}
+
+W sekcji \textbf{Wydajność: ECC vs RSA-3072} ustaw 2--3 rundy i kliknij \textbf{Uruchom pomiar}.
+Porównaj czasy keygen / sign / verify oraz rozmiar podpisu (ECC zwykle krótszy i szybszy w keygen).
+
+\section{Jak weryfikować wynik (checklista na obronę)}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Test} & \textbf{Oczekiwanie} \\
+\midrule
+Generowanie kluczy & dwa pliki PEM, opcjonalnie ENCRYPTED \\
+Podpis & plik \texttt{.sig}, niepusty \\
+Weryfikacja OK & \texttt{valid: true} / PRAWIDŁOWY \\
+Zmiana dokumentu & NIEPRAWIDŁOWY \\
+Zły klucz publiczny & NIEPRAWIDŁOWY \\
+Złe hasło & komunikat błędu (HTTP 400) \\
+Historia sesji & zdarzenia bez treści klucza prywatnego \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+To wystarczy, żeby pokazać: \textbf{uwierzytelnienie}, \textbf{integralność}, \textbf{niezaprzeczalność} (przy tajności klucza prywatnego).
+
+\section{Automatyczne testy}
+
+Serwer musi być uruchomiony (\texttt{podpis\_ecc.exe} na porcie 8080).
+
+W \textbf{drugim} oknie PowerShell:
+\begin{verbatim}
+cd "C:\Users\Adrian\Desktop\Podpis cyfrowy ecc"
+powershell -ExecutionPolicy Bypass -File .\scripts\test_flow.ps1
+\end{verbatim}
+
+Skrypt sprawdza m.in.:
+\begin{itemize}[leftmargin=*]
+  \item dostępność UI,
+  \item generowanie kluczy z hasłem,
+  \item SHA-256,
+  \item podpis + weryfikację pozytywną,
+  \item weryfikację negatywną po zmianie dokumentu,
+  \item odrzucenie złego hasła,
+  \item endpoint benchmarku.
+\end{itemize}
+
+Sukces: komunikat \texttt{Wszystkie testy przeszły.} oraz linie \texttt{OK ...}.
+
+\section{Co jeszcze można poprawić / rozwinąć}
+
+\subsection{Szybkie ulepszenia (1--2 wieczory)}
+\begin{itemize}[leftmargin=*]
+  \item zrzuty ekranu do dokumentacji LaTeX,
+  \item tabela wyników benchmarku wpisana do rozdziału wniosków,
+  \item eksport historii sesji do pliku JSON/CSV (bez kluczy),
+  \item ciemniejszy / jaśniejszy motyw UI.
+\end{itemize}
+
+\subsection{Rozszerzenia funkcjonalne}
+\begin{itemize}[leftmargin=*]
+  \item podpis wielu plików naraz (batch),
+  \item weryfikacja ``przeciągnij folder'',
+  \item zapis metadanymi: kto / kiedy (lokalny log, nie PKI),
+  \item porównanie z ECDSA na \texttt{secp256k1} (Bitcoin) obok P-256,
+  \item prosty tryb ``tylko weryfikacja'' dla drugiej osoby (bez generowania).
+\end{itemize}
+
+\subsection{Bezpieczeństwo (poziom zaawansowany)}
+\begin{itemize}[leftmargin=*]
+  \item magazyn klucza w systemie (DPAPI / Credential Manager),
+  \item HTTPS lokalnie (opcjonalnie),
+  \item HSM / token USB --- poza typowym zakresem przedmiotu.
+\end{itemize}
+
+\subsection{Czego nie trzeba robić na zaliczenie}
+\begin{itemize}[leftmargin=*]
+  \item pełne PKI / certyfikaty CA,
+  \item kwalifikowany podpis elektroniczny,
+  \item własna implementacja arytmetyki krzywej zamiast OpenSSL.
+\end{itemize}
+
+\section{Struktura projektu (skrót)}
+
+\begin{verbatim}
+Podpis cyfrowy ecc/
+  src/           C++ (OpenSSL + serwer HTTP)
+  web/           UI (HTML/CSS/JS)
+  scripts/       test_flow.ps1
+  docs/          ta instrukcja (PDF)
+  build/bin/     podpis_ecc.exe
+\end{verbatim}
+
+Dokumentacja akademicka: folder \texttt{korostil} na Pulpicie (\texttt{build/dokument.pdf}).
+
+\section{Szybka ściąga}
+
+\begin{enumerate}[leftmargin=*]
+  \item \texttt{.\textbackslash build\textbackslash bin\textbackslash podpis\_ecc.exe}
+  \item Przeglądarka $\rightarrow$ \url{http://127.0.0.1:8080/}
+  \item Generuj klucze $\rightarrow$ podpisz $\rightarrow$ weryfikuj OK
+  \item Zmień dokument $\rightarrow$ weryfikuj FAIL
+  \item \texttt{.\textbackslash scripts\textbackslash test\_flow.ps1} przy działającym serwerze
+\end{enumerate}
+
+\vspace{1.5em}
+\noindent\textit{Koniec instrukcji. Powodzenia na zaliczeniu.}
+
+\end{document}
