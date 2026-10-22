@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PodpisECC</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,600;0,9..40,700;1,9..40,400&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="page">
+    <header class="hero">
+      <p class="brand">PodpisECC</p>
+      <h1>Podpis cyfrowy na krzywych eliptycznych</h1>
+      <p class="lede">ECDSA · secp256r1 · SHA-256 · OpenSSL</p>
+    </header>
+
+    <main class="ops">
+      <section class="op" id="keys">
+        <h2>1. Generuj klucze</h2>
+        <p>Utwórz parę ECDSA (NIST P-256). Klucz prywatny zachowaj u siebie — służy wyłącznie do podpisywania.</p>
+        <button type="button" id="btn-generate" class="primary">Generuj parę kluczy</button>
+        <div id="keys-result" class="result hidden"></div>
+      </section>
+
+      <section class="op" id="sign">
+        <h2>2. Podpisz dokument</h2>
+        <p>Wgraj dokument oraz klucz prywatny PEM. Skrót SHA-256 i podpis ECDSA (DER) powstają po stronie serwera.</p>
+        <form id="form-sign" class="form">
+          <label>Dokument <input type="file" name="document" required /></label>
+          <label>Klucz prywatny (.pem) <input type="file" name="private_key" accept=".pem,.key,text/plain" required /></label>
+          <button type="submit" class="primary">Podpisz</button>
+        </form>
+        <div id="sign-result" class="result hidden"></div>
+      </section>
+
+      <section class="op" id="verify">
+        <h2>3. Zweryfikuj podpis</h2>
+        <p>Wgraj dokument, klucz publiczny i plik podpisu. Wynik jest jednoznaczny: prawidłowy albo nieprawidłowy.</p>
+        <form id="form-verify" class="form">
+          <label>Dokument <input type="file" name="document" required /></label>
+          <label>Klucz publiczny (.pem) <input type="file" name="public_key" accept=".pem,.key,text/plain" required /></label>
+          <label>Podpis (.sig) <input type="file" name="signature" accept=".sig,.bin,application/octet-stream" required /></label>
+          <button type="submit" class="primary">Weryfikuj</button>
+        </form>
+        <div id="verify-result" class="result hidden"></div>
+      </section>
+
+      <section class="op" id="hash">
+        <h2>Skrót SHA-256</h2>
+        <p>Opcjonalnie: policz skrót dokumentu bez podpisywania.</p>
+        <form id="form-hash" class="form">
+          <label>Dokument <input type="file" name="document" required /></label>
+          <button type="submit" class="secondary">Oblicz skrót</button>
+        </form>
+        <div id="hash-result" class="result hidden"></div>
+      </section>
+    </main>
+
+    <footer>
+      <p>Projekt akademicki — C++ · OpenSSL · lokalny serwer HTTP</p>
+    </footer>
+  </div>
+  <script src="/static/app.js"></script>
+</body>
+</html>

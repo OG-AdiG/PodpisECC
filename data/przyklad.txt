@@ -1,0 +1,2 @@
+To jest przykładowy dokument do podpisu cyfrowego ECC (ECDSA + SHA-256).
+Nie zmieniaj tej treści, jeśli chcesz uzyskać pozytywny wynik weryfikacji.
