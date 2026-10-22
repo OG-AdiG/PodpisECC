@@ -200,11 +200,20 @@ int main(int argc, char** argv) {
     svr.Post("/api/sign", [](const httplib::Request& req, httplib::Response& res) {
         fs::path work;
         try {
-            if (!req.has_file("document") || !req.has_file("private_key")) {
-                throw std::runtime_error("Wymagane pliki: dokument oraz klucz prywatny");
+            if (!req.has_file("document")) {
+                throw std::runtime_error("Brak pliku dokumentu — wybierz dokument do podpisania");
+            }
+            if (!req.has_file("private_key")) {
+                throw std::runtime_error("Brak pliku klucza prywatnego — wybierz plik .pem / .key");
             }
             const auto& doc_part = req.get_file_value("document");
             const auto& key_part = req.get_file_value("private_key");
+            if (doc_part.content.empty()) {
+                throw std::runtime_error("Plik dokumentu jest pusty");
+            }
+            if (key_part.content.empty()) {
+                throw std::runtime_error("Plik klucza prywatnego jest pusty");
+            }
             ecc::validate_key_filename(key_part.filename);
 
             work = make_work_dir();
@@ -235,15 +244,27 @@ int main(int argc, char** argv) {
     svr.Post("/api/verify", [](const httplib::Request& req, httplib::Response& res) {
         fs::path work;
         try {
-            if (!req.has_file("document") ||
-                !req.has_file("public_key") ||
-                !req.has_file("signature")) {
-                throw std::runtime_error(
-                    "Wymagane pliki: dokument, klucz publiczny oraz podpis");
+            if (!req.has_file("document")) {
+                throw std::runtime_error("Brak pliku dokumentu — wybierz dokument do weryfikacji");
+            }
+            if (!req.has_file("public_key")) {
+                throw std::runtime_error("Brak pliku klucza publicznego — wybierz plik .pem / .pub");
+            }
+            if (!req.has_file("signature")) {
+                throw std::runtime_error("Brak pliku podpisu — wybierz plik .sig / .bin / .der");
             }
             const auto& doc_part = req.get_file_value("document");
             const auto& key_part = req.get_file_value("public_key");
             const auto& sig_part = req.get_file_value("signature");
+            if (doc_part.content.empty()) {
+                throw std::runtime_error("Plik dokumentu jest pusty");
+            }
+            if (key_part.content.empty()) {
+                throw std::runtime_error("Plik klucza publicznego jest pusty");
+            }
+            if (sig_part.content.empty()) {
+                throw std::runtime_error("Plik podpisu jest pusty");
+            }
             ecc::validate_key_filename(key_part.filename);
             ecc::validate_signature_filename(sig_part.filename);
 

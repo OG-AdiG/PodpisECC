@@ -39,11 +39,37 @@ int pem_password_cb(char* buf, int size, int /*rwflag*/, void* userdata) {
     return n;
 }
 
+bool pem_looks_encrypted(const std::string& path) {
+    const auto text = read_file_bytes_as_string(path);
+    return text.find("ENCRYPTED") != std::string::npos ||
+           text.find("Proc-Type: 4,ENCRYPTED") != std::string::npos;
+}
+
+bool pem_looks_public_only(const std::string& path) {
+    const auto text = read_file_bytes_as_string(path);
+    const bool has_pub = text.find("BEGIN PUBLIC KEY") != std::string::npos ||
+                         text.find("BEGIN EC PUBLIC KEY") != std::string::npos;
+    const bool has_priv = text.find("PRIVATE KEY") != std::string::npos;
+    return has_pub && !has_priv;
+}
+
+bool pem_looks_private(const std::string& path) {
+    const auto text = read_file_bytes_as_string(path);
+    return text.find("PRIVATE KEY") != std::string::npos;
+}
+
 std::unique_ptr<EVP_PKEY, EvpPkeyDeleter> load_private_key(const std::string& path,
                                                           const std::string& passphrase) {
     std::unique_ptr<FILE, FileCloser> in(std::fopen(path.c_str(), "rb"));
     if (!in) {
-        fail("Nie można otworzyć klucza prywatnego");
+        fail("Nie można otworzyć pliku klucza prywatnego");
+    }
+
+    if (pem_looks_public_only(path)) {
+        fail("Wgrano klucz publiczny zamiast prywatnego — do podpisywania potrzebny jest klucz prywatny");
+    }
+    if (pem_looks_encrypted(path) && passphrase.empty()) {
+        fail("Klucz prywatny jest zaszyfrowany — podaj hasło w polu formularza");
     }
 
     std::string pass = passphrase;
@@ -54,8 +80,11 @@ std::unique_ptr<EVP_PKEY, EvpPkeyDeleter> load_private_key(const std::string& pa
         raw = PEM_read_PrivateKey(in.get(), nullptr, pem_password_cb, &pass);
     }
     if (!raw) {
-        openssl_fail("Nie udało się odczytać klucza prywatnego PEM "
-                     "(zły format, uszkodzony plik lub nieprawidłowe hasło)");
+        if (pem_looks_encrypted(path)) {
+            fail("Nieprawidłowe hasło do klucza prywatnego albo uszkodzony plik PEM");
+        }
+        openssl_fail("Nie udało się odczytać klucza prywatnego "
+                     "(zły format PEM, uszkodzony plik lub to nie jest klucz prywatny ECDSA)");
     }
     return std::unique_ptr<EVP_PKEY, EvpPkeyDeleter>(raw);
 }
@@ -63,11 +92,15 @@ std::unique_ptr<EVP_PKEY, EvpPkeyDeleter> load_private_key(const std::string& pa
 std::unique_ptr<EVP_PKEY, EvpPkeyDeleter> load_public_key(const std::string& path) {
     std::unique_ptr<FILE, FileCloser> in(std::fopen(path.c_str(), "rb"));
     if (!in) {
-        fail("Nie można otworzyć klucza publicznego");
+        fail("Nie można otworzyć pliku klucza publicznego");
+    }
+    if (pem_looks_private(path) && !pem_looks_public_only(path)) {
+        fail("Wgrano klucz prywatny zamiast publicznego — do weryfikacji potrzebny jest klucz publiczny");
     }
     EVP_PKEY* raw = PEM_read_PUBKEY(in.get(), nullptr, nullptr, nullptr);
     if (!raw) {
-        openssl_fail("Nieprawidłowy format klucza publicznego PEM");
+        openssl_fail("Nieprawidłowy format klucza publicznego PEM "
+                     "(oczekiwano BEGIN PUBLIC KEY)");
     }
     return std::unique_ptr<EVP_PKEY, EvpPkeyDeleter>(raw);
 }
